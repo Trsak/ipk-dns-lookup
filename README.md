@@ -9,8 +9,8 @@ Iterativní dotazování u DNS typu PTR je nefunkční.
  - Pomocí příkazu **make clean** lze odstranit objektové soubory
    a příkazem **make remove** navíc i spustitelné soubory.
 # Použití
-./ipk-lookup [-h]
-./ipk-lookup -s server [-T timeout] [-t type] [-i] name
+     ./ipk-lookup [-h]  
+     ./ipk-lookup -s server [-T timeout] [-t type] [-i] name
  - h (help) - volitelný parametr, při jeho zadání se vypíše nápověda a program se ukončí.
  - s (server) - povinný parametr, DNS server (IPv4 adresa), na který se budou odesílat dotazy.
  - T (timeout) - volitelný parametr, timeout (v sekundách) pro dotaz, výchozí hodnota 5 sekund.
