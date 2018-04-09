@@ -1,3 +1,10 @@
+/**
+ * @project IPK-dns-lookup
+ * @file ipk-lookup.c
+ * @author Petr Sopf (xsopfp00)
+ * @brief DNS lookup
+ */
+
 #include <cctype>
 #include <cstdio>
 #include <cstdlib>
@@ -28,20 +35,22 @@ int main(int argc, char **argv) {
     std::string iterLast;
     std::string stringEndChar;
 
+    //Parse all arguments
     while ((c = getopt(argc, argv, "ihs:T:t:")) != -1) {
         switch (c) {
-            case 'h':
+            case 'h': //Print help message
                 if (argc != 2) {
                     fprintf(stderr, "ERROR: -h parameter can be only used standalone!\n");
                     exit(2);
                 }
-                //TODO: HELP message
                 printf("---------- HELP ----------\n");
+                printf("DNS LOOKUP\n");
+                printf("./ipk-lookup -s server [-T timeout] [-t type] [-i] name\n");
                 exit(0);
-            case 's':
+            case 's': //Parse server argument
                 server = optarg;
                 break;
-            case 'T':
+            case 'T': //Parse timeout argument
                 char *ptr;
                 timeout_seconds = static_cast<int>(strtol(optarg, &ptr, 10));
                 if (strlen(ptr) != 0) {
@@ -49,7 +58,7 @@ int main(int argc, char **argv) {
                     exit(2);
                 }
                 break;
-            case 't':
+            case 't': //Parse type argument
                 if (strcmp(optarg, "A") == 0) {
                     type = TYPE_A;
                 } else if (strcmp(optarg, "AAAA") == 0) {
@@ -65,10 +74,10 @@ int main(int argc, char **argv) {
                     exit(2);
                 }
                 break;
-            case 'i':
+            case 'i': //Parse iterative argument
                 iterative = true;
                 break;
-            case '?':
+            case '?': //Check for unknown parameters
                 if (optopt == 's' || optopt == 't' || optopt == 'T') {
                     fprintf(stderr, "ERROR: Option %c requires an argument.\n", optopt);
                 } else if (isprint(optopt)) {
@@ -83,6 +92,7 @@ int main(int argc, char **argv) {
         }
     }
 
+    //Get name argument and check for unknown arguments.
     for (index = optind; index < argc; index++) {
         if (!name.empty()) {
             fprintf(stderr, "ERROR: Unknown non-option argument: %s.\n", argv[index]);
@@ -92,6 +102,7 @@ int main(int argc, char **argv) {
         name = argv[index];
     }
 
+    //Validate server and name arguments
     if (server.empty()) {
         fprintf(stderr, "ERROR: Missing server parameter!\n");
         exit(2);
@@ -104,27 +115,32 @@ int main(int argc, char **argv) {
     server_address.sin_family = AF_INET;
     server_address.sin_port = htons(53);
 
+    //Validate DNS server ip
     int server_address_check = inet_pton(AF_INET, server.c_str(), &(server_address.sin_addr));
     if (server_address_check <= 0) {
         fprintf(stderr, "ERROR: Server argument must be valid IPv4!\n");
         exit(2);
     }
 
+    //Create socket
     int client_socket = socket(AF_INET, SOCK_DGRAM, 0);
     if (client_socket <= 0) {
         fprintf(stderr, "ERROR: Error while creating socket!\n");
         exit(1);
     }
 
+    //Set timeout
     struct timeval timeout{};
     timeout.tv_sec = timeout_seconds;
     timeout.tv_usec = 0;
     setsockopt(client_socket, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
 
+    //Loop for sending and obtaining requests
     while (true) {
         unsigned char buf[65536];
         struct DNS_HEADER *dns_header;
 
+        //Set DNS header
         dns_header = (struct DNS_HEADER *) &buf;
         dns_header->ID = (unsigned short) getpid();
         dns_header->Truncation = 0;
@@ -148,6 +164,7 @@ int main(int argc, char **argv) {
 
         std::string dns_name;
         if (type == TYPE_PTR) {
+            //If types is ptr, check if valid IPv4/IPv6 was given
             char tempbuf[100];
 
             if (inet_pton(AF_INET, name.c_str(), tempbuf)) {
@@ -160,6 +177,7 @@ int main(int argc, char **argv) {
             }
         }
 
+        //Transfer name or IP to needed format
         if (!iterative) {
             dns_name = name_to_dns_format(name);
         } else {
@@ -167,8 +185,8 @@ int main(int argc, char **argv) {
                 type_save = type;
 
                 iterNeeded = 0;
-                for (char c : name) {
-                    if (c == '.') {
+                for (char ch : name) {
+                    if (ch == '.') {
                         iterNeeded++;
                     }
                 }
@@ -194,9 +212,11 @@ int main(int argc, char **argv) {
             len = 1;
         }
 
+        //Add name or IP right after DNS header
         memcpy(&buf[sizeof(struct DNS_HEADER)], dns_name.c_str(), len);
         memcpy(&buf[sizeof(struct DNS_HEADER) + len], stringEndChar.c_str(), 1);
 
+        //Create DNS Question and add it to buffer
         struct DNS_QUESTION *dns_question;
         dns_question = (struct DNS_QUESTION *) &buf[sizeof(struct DNS_HEADER) + (dns_name.length() + 1)];
         dns_question->QuestionClass = htons(1);
@@ -210,6 +230,7 @@ int main(int argc, char **argv) {
         header_and_question_size = sizeof(struct DNS_HEADER) + (dns_name.length() + 1) + sizeof(struct DNS_QUESTION);
         header_size = sizeof(struct DNS_HEADER);
 
+        //Send packet with Question
         bytestx = sendto(client_socket, buf, header_and_question_size, 0, (struct sockaddr *) &server_address,
                          serverlen);
         if (bytestx < 0) {
@@ -217,6 +238,7 @@ int main(int argc, char **argv) {
             exit(1);
         }
 
+        //Retrieve packet
         bytestx = recvfrom(client_socket, buf, 65536, 0, (struct sockaddr *) &server_address, &serverlen);
         if (bytestx < 0) {
             if (errno == 11) {
@@ -228,6 +250,7 @@ int main(int argc, char **argv) {
             exit(1);
         }
 
+        //Skip header
         dns_header = (struct DNS_HEADER *) buf;
         unsigned char *data = &buf[header_and_question_size];
         unsigned char *links_start = &buf[header_size - 12];
@@ -243,6 +266,7 @@ int main(int argc, char **argv) {
 
         struct DNS_RECORD answers[answers_count];
 
+        //Parse obtained data
         parse_data(answers, answers_count, data, links_start);
 
         int answer_type;
@@ -253,6 +277,7 @@ int main(int argc, char **argv) {
             answers_limit = 1;
         }
 
+        //Print data
         for (int i = start; i < answers_limit; i++) {
             answer_type = ntohs(answers[i].Data->DataType);
             if ((answer_type == type) && (!iterative)) {
@@ -344,6 +369,11 @@ int main(int argc, char **argv) {
     exit(0);
 }
 
+
+/**
+ * Explodes string into vectory by delimeter
+ * @source https://stackoverflow.com/a/12967010
+ */
 std::vector<std::string> explode(std::string const &s, char delim) {
     std::vector<std::string> result;
     std::istringstream iss(s);
@@ -355,6 +385,9 @@ std::vector<std::string> explode(std::string const &s, char delim) {
     return result;
 }
 
+/**
+ * Converts IPv4 to PTR format
+ */
 std::string ipv4_to_pvtr4(std::string name) {
     std::string ptr_name = "in-addr.arpa";
     std::string reversed;
@@ -370,6 +403,9 @@ std::string ipv4_to_pvtr4(std::string name) {
     return ptr_name;
 }
 
+/**
+ * Converts IPv6 to PTR format
+ */
 std::string ipv6_to_pvtr6(std::string name) {
     std::string ptr_name = "apra.6pi.";
     std::string reversed;
@@ -405,6 +441,9 @@ std::string ipv6_to_pvtr6(std::string name) {
     return ptr_name;
 }
 
+/**
+ * Converts name in DNS format back to readable format
+ */
 std::string name_from_dns_format(std::string dns_name) {
     std::string name;
     unsigned int position = 0;
@@ -430,6 +469,9 @@ std::string name_from_dns_format(std::string dns_name) {
     return name;
 }
 
+/**
+ * Converts name to DNS format
+ */
 std::string name_to_dns_format(std::string name) {
     std::string dns_name;
 
@@ -444,6 +486,9 @@ std::string name_to_dns_format(std::string name) {
     return dns_name;
 }
 
+/**
+ * Parses name from DNS answer
+ */
 std::string parse_name(unsigned char *data, unsigned char *links_start, int *nameLen) {
     bool link = false;
     bool linkDone = false;
@@ -494,6 +539,9 @@ std::string parse_name(unsigned char *data, unsigned char *links_start, int *nam
     return name;
 }
 
+/**
+ * Parses DNS answers and stores it to data_place
+ */
 void parse_data(struct DNS_RECORD *data_place, int count, unsigned char *data, unsigned char *links_start) {
     int nameLen = 0;
 
@@ -515,6 +563,9 @@ void parse_data(struct DNS_RECORD *data_place, int count, unsigned char *data, u
     }
 }
 
+/**
+ * For iterative query, returns next NS to be queried
+ */
 std::string get_next_ns(std::string name, int iter) {
     auto exploded = explode(name, '.');
     std::reverse(exploded.begin(), exploded.end());

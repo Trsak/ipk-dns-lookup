@@ -1,13 +1,24 @@
+/**
+ * @project IPK-dns-lookup
+ * @file ipk-lookup.h
+ * @author Petr Sopf (xsopfp00)
+ * @brief DNS lookup
+ */
+
 #ifndef IPK_LOOKUP_H
 #define IPK_LOOKUP_H
 
+//DNS types constants
 uint16_t const TYPE_A = 1;
 uint16_t const TYPE_NS = 2;
 uint16_t const TYPE_CNAME = 5;
 uint16_t const TYPE_PTR = 12;
 uint16_t const TYPE_AAAA = 28;
 
-//SOURCE: https://msdn.microsoft.com/en-us/library/windows/desktop/ms682059(v=vs.85).aspx
+/**
+ * DNS STRUCTURES
+ * @source https://msdn.microsoft.com/en-us/library/windows/desktop/ms682059(v=vs.85).aspx
+ */
 struct DNS_HEADER {
     unsigned short ID;
 
@@ -49,7 +60,7 @@ struct DNS_RECORD {
     unsigned char *Rdata;
 };
 
-//SOURCE: https://stackoverflow.com/a/12967010
+
 std::vector<std::string> explode(std::string const &s, char delim);
 
 std::string ipv4_to_pvtr4(std::string name);
