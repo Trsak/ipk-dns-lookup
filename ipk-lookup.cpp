@@ -92,7 +92,7 @@ std::string name_to_dns_format(std::string name) {
 
 std::string name_from_dns_format(std::string dns_name) {
     std::string name;
-    int position = 0;
+    unsigned int position = 0;
     std::vector<int> dots;
 
     for (char c : dns_name) {
@@ -115,33 +115,39 @@ std::string name_from_dns_format(std::string dns_name) {
     return name;
 }
 
-unsigned char *parse_name(unsigned char *reader, unsigned char *buffer, size_t dataSize, int *step) {
-    int size = 0;
-    int back = 10;
+unsigned char *parse_name(unsigned char *data, unsigned char *links_start, int *nameLen) {
+    bool firstLoop = true;
     bool link = false;
+    int linkValue = 0;
+    int size = 0;
+    *nameLen = 0;
     std::string name;
 
-    while (*reader != '\0') {
+    while (*data != '\0') {
         if (link) {
-            back += *reader;
+            linkValue += *data;
+            *nameLen += 1;
+        } else {
+            name += *data;
         }
 
-        if (*reader == 192) {
+        if (*data <= 192 && firstLoop) {
+            *nameLen += 1;
             link = true;
+            linkValue += *data - 192;
+            name = "";
         }
 
         ++size;
-        reader += 1;
+        data += 1;
+
+        if (link && *data == '\0') {
+            data = &links_start[linkValue];
+            link = false;
+        }
+
+        firstLoop = false;
     }
-
-    reader = &buffer[dataSize - back];
-
-    while (*reader != '\0') {
-        name += *reader;
-        reader += 1;
-    }
-
-    *step += size;
 
     name = name_from_dns_format(name);
     return (unsigned char *) name.c_str();
@@ -268,10 +274,10 @@ int main(int argc, char **argv) {
     auto dns_name = name_to_dns_format(name);
     memcpy(&buf[sizeof(struct DNS_HEADER)], dns_name.c_str(), dns_name.length());
 
-    struct DNS_QUESTION *qinfo;
-    qinfo = (struct DNS_QUESTION *) &buf[sizeof(struct DNS_HEADER) + (dns_name.length() + 1)];
-    qinfo->QuestionType = htons(type);
-    qinfo->QuestionClass = htons(1);
+    struct DNS_QUESTION *dns_question;
+    dns_question = (struct DNS_QUESTION *) &buf[sizeof(struct DNS_HEADER) + (dns_name.length() + 1)];
+    dns_question->QuestionClass = htons(1);
+    dns_question->QuestionType = htons(type);
 
     struct timeval timeout{};
     timeout.tv_sec = timeout_seconds;
@@ -280,9 +286,11 @@ int main(int argc, char **argv) {
 
     socklen_t serverlen = sizeof(server_address);
     size_t header_and_question_size;
+    size_t header_size;
     ssize_t bytestx;
 
     header_and_question_size = sizeof(struct DNS_HEADER) + (dns_name.length() + 1) + sizeof(struct DNS_QUESTION);
+    header_size = sizeof(struct DNS_HEADER);
 
     bytestx = sendto(client_socket, buf, header_and_question_size, 0, (struct sockaddr *) &server_address, serverlen);
     if (bytestx < 0) {
@@ -302,10 +310,49 @@ int main(int argc, char **argv) {
     }
 
     dns_header = (struct DNS_HEADER *) buf;
-    unsigned char *reader = &buf[header_and_question_size];
+    unsigned char *data = &buf[header_and_question_size];
+    unsigned char *links_start = &buf[header_size - 12];
 
-    int andswers_count = ntohs(dns_header->AnswerCount);
-    struct DNS_RECORD answers[andswers_count];
+    int answers_count = ntohs(dns_header->AnswerCount);
+    struct DNS_RECORD answers[answers_count];
 
-    return 0;
+    int nameLen = 0;
+
+    for (int i = 0; i < answers_count; i++) {
+        answers[i].DataName = parse_name(data, links_start, &nameLen);
+        data += nameLen;
+
+        answers[i].Data = (struct DNS_RECORD_DATA *) (data);
+        data += sizeof(struct DNS_RECORD_DATA);
+
+        size_t answer_length = ntohs(answers[i].Data->DataLength);
+        answers[i].Rdata = (unsigned char *) malloc(answer_length);
+
+        for (int ii = 0; ii < answer_length; ii++) {
+            answers[i].Rdata[ii] = data[ii];
+        }
+
+        data += answer_length;
+    }
+
+    int answer_type;
+    struct in_addr answer_ipv4{};
+
+    for (int i = 0; i < answers_count; i++) {
+        printf("%s IN ", answers[i].DataName);
+
+        answer_type = ntohs(answers[i].Data->DataType);
+        switch (answer_type) {
+            case 1: {
+                auto *ipLong = (long *) answers[i].Rdata;
+                answer_ipv4.s_addr = static_cast<in_addr_t>(*ipLong);
+                printf("A %s", inet_ntoa(answer_ipv4));
+                break;
+            }
+            default:
+                break;
+        }
+    }
+
+    exit(0);
 }
