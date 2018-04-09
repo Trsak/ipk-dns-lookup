@@ -44,9 +44,26 @@ struct DNS_RECORD_DATA {
 #pragma pack(pop)
 
 struct DNS_RECORD {
-    unsigned char *DataName;
+    std::string DataName;
     struct DNS_RECORD_DATA *Data;
     unsigned char *Rdata;
 };
+
+//SOURCE: https://stackoverflow.com/a/12967010
+std::vector<std::string> explode(std::string const &s, char delim);
+
+std::string ipv4_to_pvtr4(std::string name);
+
+std::string ipv6_to_pvtr6(std::string name);
+
+std::string name_to_dns_format(std::string name);
+
+std::string name_from_dns_format(std::string dns_name);
+
+std::string parse_name(unsigned char *data, unsigned char *links_start, int *nameLen);
+
+std::string get_next_ns(std::string name, int iter);
+
+void parse_data(struct DNS_RECORD *data_place, int count, unsigned char *data, unsigned char *links_start);
 
 #endif //IPK_LOOKUP_H
